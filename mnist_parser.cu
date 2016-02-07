@@ -5,8 +5,6 @@
 
 using namespace std;
 
-typedef float float_t;
-
 struct Image {
   vector< vector<float_t> > img;// a image is represented by a 2-dimension vector  
   size_t size; // width or height

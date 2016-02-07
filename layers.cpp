@@ -3,8 +3,8 @@
 
 using namespace std;
 
-#define ALPHA 0.05
-#define LAMBDA 0.001
+#define ALPHA 0.01
+#define LAMBDA 0.01
 
 class Layer {
   public:
@@ -142,7 +142,7 @@ class ConvolutionalLayer: public Layer {
                   int inW = w * _stride + x;
                   float_t input = _prev->_output[in * inHeight * inWidth + inH * inWidth + inW];
 
-                  int delta = _alpha * input * nextErrors[outIndex] + _lambda * _deltaW[target];
+                  float_t delta = _alpha * input * nextErrors[outIndex] + _lambda * _deltaW[target];
                   _weight[target] -= delta;
                   // update momentum
                   _deltaW[target] = delta;

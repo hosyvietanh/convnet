@@ -8,11 +8,32 @@
 #include <string>
 #include <cmath>
 #include <vector>
+#include <ctime>
+#include <boost/random.hpp>
 
-#define ALPHA 0.0001
-#define LAMBDA 0.0
+float_t ALPHA = 0.05;
+float_t LAMBDA = 0.01;
 
 using namespace std;
+
+inline int uniform_rand(int min, int max) {
+  static boost::mt19937 gen(0);
+  boost::uniform_smallint<> dst(min, max);
+  return dst(gen);
+}
+
+template<typename T>
+inline T uniform_rand(T min, T max) {
+  static boost::mt19937 gen(0);
+  boost::uniform_real<T> dst(min, max);
+  return dst(gen);
+}
+
+template<typename Iter>
+void uniform_rand(Iter begin, Iter end, float_t min, float_t max) {
+  for (Iter it = begin; it != end; ++it)
+    *it = uniform_rand(min, max);
+}
 
 class Layer {
   public:
@@ -27,6 +48,7 @@ class Layer {
       _alpha = alpha;
       _lambda = lambda;
       _prev = prev;
+      cout << depth << ' ' << height << ' ' << width << ' ' << spatialExtent << ' ' << stride << ' ' << zeroPadding << ' ' << alpha << ' ' << lambda << endl;
       _output.resize(depth * width * height);
     }
     virtual void feedForward() = 0;
@@ -58,6 +80,11 @@ class Input: public Layer {
     Input(int depth, int height, int width): Layer(depth, height, width, 0, 0, 0, 0, 0, NULL) {}
     void setOutput(const vector<float_t> &output) {
       _output = output;
+      //cout << output.size() << ' ' << _height << ' ' << _width << ' ' << endl;
+      //for (int i = 0; i < _height; i++) {
+        //for (int j = 0; j < _width; j++) cout << output[i * _width + j] << ' ';
+        //cout << endl;
+      //}
     }
     void feedForward(){}
     void backProp(const vector<float_t> &nextErrors){}
@@ -99,23 +126,6 @@ class ConvolutionalLayer: public Layer {
       _errors.clear();
      
       _errors.resize(inWidth * inHeight * inDepth);
-      // calculate error term
-      //for (int out = 0; out < _depth; out++) {
-        //for (int in = 0; in < inDepth; in++) {
-          //for (int w = 0; w < _width; w++) {
-            //for (int h = 0; h < _height; h++) {
-              //for (int y = 0; y < _spatialExtent; y++) {
-                //for (int x = 0; x < _spatialExtent; x++) {
-                  //int index = in * inWidth * inHeight + (h + y) * inWidth + (x + w);
-                  //int weightIndex = in * _depth * F * F + out * F * F + (F - y - 1) * F + (F - x - 1);
-                  //_errors[index] += nextErrors[out * _width * _height + h * _width + w]
-                  //* _weight[weightIndex] * activationDerivativeFunction(_prev->_output[index]);
-                //}
-              //}
-            //}
-          //}
-        //}
-      //}
 
       for (int out = 0; out < _depth; out++) {
         for (int h = 0; h < _height; h++) {
@@ -136,6 +146,9 @@ class ConvolutionalLayer: public Layer {
           }
         }
       }
+      for (int i = 0; i < 10; i++) {
+        //printf("Error convo %d %.9lf\n", i, _errors[i]);
+      }
       // update weight
       for (int out = 0; out < _depth; out++) {
         for (int h = 0; h < _height; h++) {
@@ -150,7 +163,7 @@ class ConvolutionalLayer: public Layer {
                   int inW = w * _stride + x;
                   float_t input = _prev->_output[in * inHeight * inWidth + inH * inWidth + inW];
 
-                  int delta = _alpha * input * nextErrors[outIndex] + _lambda * _deltaW[target];
+                  float_t delta = _alpha * input * nextErrors[outIndex] + _lambda * _deltaW[target];
                   _weight[target] -= delta;
                   // update momentum
                   _deltaW[target] = delta;
@@ -164,13 +177,11 @@ class ConvolutionalLayer: public Layer {
     }
 
     void initWeight() {
-      for (int i = 0; i < _weight.size(); i++) {
-        _weight[i] = 1.0 * (rand() - rand())/RAND_MAX;
-      }
-      for (int i = 0; i < _bias.size(); i++) {
-        _bias[i] = 1.0 * (rand() - rand())/RAND_MAX;
-      }
+      uniform_rand(_weight.begin(), _weight.end(), -1, 1);
+      uniform_rand(_bias.begin(), _bias.end(), -1, 1);
+      cout << _weight[1] << ' ' << _bias[1] << ' ' << _weight.size() + _bias.size() << endl;
     }
+
   private:
     vector<float_t> _weight;
     vector<float_t> _bias;
@@ -187,9 +198,17 @@ class ConvolutionalLayer: public Layer {
           float_t input = _prev->_output[index];
           int inDepth = _prev->_depth;
           int indexWeight = in * _depth * F * F + out * F * F + i * F + j;
+          //int indexWeight = in * _depth * F * F + out * F * F + (F - i -1) * F + (F - 1 - j);
+          //if (getIndex(out, h, w) == 69) {
+            //cout << in << ' ' << startH + i << ' ' << startW + j << endl;
+          //}
           result += input * _weight[indexWeight];
         }
       }
+      //if (getIndex(out, h, w) == 69) {
+        //for (int i = 0; i < x.size(); i++) cout << x[i] << ' ';cout << endl;
+        //for (int i = 0; i < y.size(); i++) cout << y[i] << ' ';cout << endl;
+      //}
       return result;
     }
 };
@@ -219,6 +238,9 @@ class MaxPoolingLayer: public Layer {
       for (int i = 0; i < _maxIndex.size(); i++) {
         _errors[_maxIndex[i]] = nextErrors[i];
       } 
+      for (int i = 0; i < 10; i++) {
+        //printf("Error pooling %d %.9f\n", i, _errors[i]);
+      }
     }
 
     void initWeight() {}
@@ -288,15 +310,14 @@ class FullyConnectedLayer: public Layer {
         }
         _bias[out] -= _alpha * nextErrors[out];
       }
+      //for (int i = 0; i < inDepth; i++) printf("%.9f ", _errors[i]);
+      //cout << endl;
     }
 
     void initWeight() {
-      for (int i = 0; i < _weight.size(); i++) {
-        _weight[i] = 1.0 * (rand() - rand())/RAND_MAX;
-      }
-      for (int i = 0; i < _bias.size(); i++) {
-        _bias[i] = 1.0 * (rand() - rand())/RAND_MAX;
-      }
+			uniform_rand(_weight.begin(), _weight.end(), -2, 2);
+			uniform_rand(_bias.begin(), _bias.end(), -2, 2);
+      cout << _weight[1] << ' ' << _bias[1] << ' ' << _weight.size() + _bias.size() << endl;
     }
 };
 
@@ -317,7 +338,9 @@ class OutputLayer: public Layer {
       for (int i = 0; i < _depth; i++) {
         int expected = (i == _label) ? 1 : 0;
         err += 0.5 * (_output[i] - expected) * (_output[i] - expected);
+        //cout << _output[i] << ' ';
       }
+      //cout << endl;
       return err;
     }
 
@@ -335,6 +358,8 @@ class OutputLayer: public Layer {
         int expected = (i == _label) ? 1 : 0;
         _errors[i] = (_output[i] - expected) * activationDerivativeFunction(_prev->_output[i]);
       }
+      //for (int i = 0; i < _errors.size(); i++) cout << _errors[i] << ' ';
+      //cout << endl;
     }
 
     int _label;
@@ -548,7 +573,7 @@ void initializeNet(vector<Layer*> &layers) {
   layers.push_back(new MaxPoolingLayer(2, 2, layers.back())); // => 6 * 14 * 14 
   layers.push_back(new ConvolutionalLayer(16, 5, 1, 0, layers.back())); // => 16 * 10 * 10
   layers.push_back(new MaxPoolingLayer(2, 2, layers.back())); // => 16 * 5 * 5
-  layers.push_back(new ConvolutionalLayer(120, 5, 1, 0, layers.back())); // => 120 * 1 * 1
+  layers.push_back(new ConvolutionalLayer(100, 5, 1, 0, layers.back())); // => 100 * 1 * 1
   layers.push_back(new FullyConnectedLayer(10, layers.back())); // => 10 * 1 * 1
   layers.push_back(new OutputLayer(layers.back()));
 }
@@ -556,12 +581,20 @@ void initializeNet(vector<Layer*> &layers) {
 void train(vector<Layer*> layers) {
   Mnist_Parser parser(".");
   auto input = parser.load_training();  
-  for (int test = 0; test < 180000/* input.size())*/; test++) {
-    int i = test % 60000;
+  for (int test = 0; test < 60000/* input.size())*/; test++) {
+     
+    auto i = test % 60000;
+    if (test % 100 == 0) {
+      cout << test << endl;
+    }
+    //int i = test;
     ((Input*)layers[0])->setOutput(input[i]->image);
     ((OutputLayer*)layers.back())->setLabel(input[i]->label);
+    //cout << "Label = " << ' ' << i << ' ' << (int)input[i]->label << endl;
     //cout << test << ' ' << i << endl;
     int iter = 0;
+    float_t errors = 0;
+    int M = 1;
     do {
       for (int l = 0; l < layers.size(); l++) {
         layers[l]->feedForward();
@@ -572,9 +605,11 @@ void train(vector<Layer*> layers) {
         layers[l]->backProp(nextErrors);
         nextErrors = layers[l]->_errors;
       }
-      //float_t x = ((OutputLayer*)layers.back())->getError();
+      float_t x = ((OutputLayer*)layers.back())->getError();
+      errors += x;
       iter++;
-    } while (((OutputLayer*)layers.back())->getError() > 1e-3 && iter < 1);
+    } while (errors/M > 1e-3 && iter < M);
+    //cout << test << ' ' << errors/M << endl;
   }
   auto testInput = parser.load_testing();
   int correct = 0;
@@ -591,6 +626,7 @@ void train(vector<Layer*> layers) {
 }
 
 int main() {
+  cout << ALPHA << ' ' << LAMBDA << endl;
   srand(time(NULL));
   vector<Layer*> layers;
   initializeNet(layers);
