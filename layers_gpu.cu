@@ -6,8 +6,10 @@
 
 using namespace std;
 
-#define ALPHA 0.01
+#define ALPHA 0.05
 #define LAMBDA 0.01
+float_t Layer::_alpha;
+float_t Layer::_lambda;
 const string SOLVE_MODE = "GPU";
 
 inline int uniform_rand(int min, int max) {
@@ -52,15 +54,13 @@ int getDimension(int total, int each) {
 }
 
 Layer::Layer(int depth, int height, int width, int spatialExtent, int stride,
-    int zeroPadding, float_t alpha, float_t lambda, Layer *prev) {
+    int zeroPadding, Layer *prev) {
   _depth = depth;
   _height = height;
   _width = width;
   _spatialExtent = spatialExtent;
   _stride = stride;
   _zeroPadding = zeroPadding;
-  _alpha = alpha;
-  _lambda = lambda;
   _prev = prev;
 
   if (prev == NULL) {
@@ -92,7 +92,12 @@ int Layer::getIndex(int d, int h, int w) {
   return d * (_height * _width) + h * _width + w;
 }
 
-Input::Input(int depth, int height, int width): Layer(depth, height, width, 0, 0, 0, 0, 0, NULL) {}
+void Layer::setLearning(float_t alpha, float_t lambda) {
+  _alpha = alpha;
+  _lambda = lambda;
+}
+
+Input::Input(int depth, int height, int width): Layer(depth, height, width, 0, 0, 0, NULL) {}
 
 void Input::setOutput(vector<float_t> &output) {
   float_t temp[_outputSize];
@@ -197,7 +202,7 @@ __global__ void convoBackpropWeight(float_t *prev, float_t *weight, float_t *del
 ConvolutionalLayer::ConvolutionalLayer(int depth, int spatialExtent, int stride, int zeroPadding, Layer *prev):
   Layer(depth, (prev->_height - spatialExtent + 2 * zeroPadding)/stride + 1,
       (prev->_width - spatialExtent + 2 * zeroPadding)/stride + 1,
-      spatialExtent, stride, zeroPadding, ALPHA, LAMBDA, prev) {
+      spatialExtent, stride, zeroPadding, prev) {
 
     initWeight();
   }
@@ -252,7 +257,7 @@ void ConvolutionalLayer::backProp_gpu(float_t *nextErrors) {
   dim3 dimBlock(blockX, blockY, blockZ);
   dim3 dimGrid(getDimension(_prev->_width, dimBlock.x), getDimension(_prev->_height, dimBlock.y), getDimension(_prev->_depth, dimBlock.z));
   convoBackpropErrors<<<dimGrid, dimBlock>>>(_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _height, _width,
-      _prev->_depth, _prev->_height, _prev->_width, _spatialExtent, _stride, _alpha, _lambda);
+      _prev->_depth, _prev->_height, _prev->_width, _spatialExtent, _stride, Layer::_alpha, Layer::_lambda);
 
   blockX = min(16, _spatialExtent * _spatialExtent);
   blockY = min(16, _depth);
@@ -260,7 +265,7 @@ void ConvolutionalLayer::backProp_gpu(float_t *nextErrors) {
   dim3 dimBlock2(blockX, blockY, blockZ);
   dim3 dimGrid2(getDimension(_spatialExtent * _spatialExtent, blockX), getDimension(_depth, blockY), getDimension(_prev->_depth, blockZ));
   convoBackpropWeight<<<dimGrid2, dimBlock2>>>(_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _height, _width,
-      _prev->_depth, _prev->_height, _prev->_width, _spatialExtent, _stride, _alpha, _lambda);
+      _prev->_depth, _prev->_height, _prev->_width, _spatialExtent, _stride, Layer::_alpha, Layer::_lambda);
 }
 
 void ConvolutionalLayer::backProp_cpu(const float_t *nextErrors) {
@@ -300,13 +305,13 @@ void ConvolutionalLayer::backProp_cpu(const float_t *nextErrors) {
               int inW = w * _stride + x;
               float_t input = _prev->_output[in * inHeight * inWidth + inH * inWidth + inW];
 
-              float_t delta = _alpha * input * nextErrors[outIndex] + _lambda * _deltaW[target];
+              float_t delta = Layer::_alpha * input * nextErrors[outIndex] + Layer::_lambda * _deltaW[target];
               _weight[target] -= delta;
               // update momentum
               _deltaW[target] = delta;
             }
           }
-          _bias[outIndex] -= _alpha * nextErrors[outIndex];
+          _bias[outIndex] -= Layer::_alpha * nextErrors[outIndex];
         }
       }
     }
@@ -401,7 +406,7 @@ __global__ void poolingBackprop(float_t *nextErrors, float_t *errors, int *maxIn
 MaxPoolingLayer::MaxPoolingLayer(int spatialExtent, int stride, Layer *prev):
   Layer(prev->_depth, (prev->_height - spatialExtent)/stride + 1,
       (prev->_width - spatialExtent)/stride + 1,
-      spatialExtent, stride, 0, ALPHA, LAMBDA, prev) {
+      spatialExtent, stride, 0, prev) {
 
     if (SOLVE_MODE == "GPU") {
       cudaMalloc(&_maxIndex, _outputSize * sizeof(int));
@@ -536,7 +541,7 @@ __global__ void fullBackPropWeight(float_t *prev, float_t *weight, float_t *delt
   }
 }
 
-FullyConnectedLayer::FullyConnectedLayer(int depth, Layer *prev): Layer(depth, 1, 1, 1, 1, 0, ALPHA, LAMBDA, prev) {
+FullyConnectedLayer::FullyConnectedLayer(int depth, Layer *prev): Layer(depth, 1, 1, 1, 1, 0, prev) {
   initWeight();
 }
 
@@ -580,11 +585,11 @@ void FullyConnectedLayer::backProp_cpu(float_t *nextErrors) {
   for (int out = 0; out < _depth; out++) {
     for (int in = 0; in < inDepth; in++) {
       int index = out * inDepth + in;
-      float_t delta = _alpha * _prev->_output[in] * nextErrors[out] + _lambda * _deltaW[index];
+      float_t delta = Layer::_alpha * _prev->_output[in] * nextErrors[out] + Layer::_lambda * _deltaW[index];
       _weight[index] -= delta;
       _deltaW[index] = delta;
     }
-    _bias[out] -= _alpha * nextErrors[out];
+    _bias[out] -= Layer::_alpha * nextErrors[out];
   }
 }
 
@@ -593,13 +598,13 @@ void FullyConnectedLayer::backProp_gpu(float_t *nextErrors) {
   int threadPerBlock = min(1024, _prev->_depth);
   int numBlock = getDimension(_prev->_depth, threadPerBlock);
   fullBackPropError<<<numBlock, threadPerBlock>>>
-    (_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _prev->_depth, _alpha, _lambda);
+    (_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _prev->_depth, Layer::_alpha, Layer::_lambda);
 
   int blockX = min(1024, _prev->_depth);
   int blockY = min(_depth, 1024/blockX);
   dim3 dimBlock(blockX, blockY);
   dim3 dimGrid(getDimension(_prev->_depth, blockX), getDimension(_depth, blockY));
-  fullBackPropWeight<<<dimGrid, dimBlock>>> (_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _prev->_depth, _alpha, _lambda);
+  fullBackPropWeight<<<dimGrid, dimBlock>>> (_prev->_output, _weight, _deltaW, _bias, _output, _errors, nextErrors, _depth, _prev->_depth, Layer::_alpha, Layer::_lambda);
 }
 
 void FullyConnectedLayer::backProp(float_t *nextErrors) {
@@ -647,10 +652,10 @@ __global__ void outputBackProp(float_t *output, float_t *errors, int label) {
   int out = blockDim.x * blockIdx.x + threadIdx.x;
   int expected = (out == label) ? 1 : 0;
   float_t predict = output[out];
-  errors[out] = (predict - expected) * activationDerivativeFunctionDevice(predict);
+  errors[out] = (predict - expected);// * activationDerivativeFunctionDevice(predict);
 }
 
-OutputLayer::OutputLayer(Layer *prev): Layer(prev->_depth, 1, 1, 0, 0, 0, 0, 0, prev) { }
+OutputLayer::OutputLayer(Layer *prev): Layer(prev->_depth, 1, 1, 0, 0, 0, prev) { }
 
 void OutputLayer::setLabel(int label) {
   _label = label;
@@ -709,7 +714,7 @@ void OutputLayer::backProp_cpu() {
   memset(_errors, 0, _errorSize * sizeof(float_t));
   for (int i = 0; i < _depth; i++) {
     int expected = (i == _label) ? 1 : 0;
-    _errors[i] = (_output[i] - expected) * activationDerivativeFunction(_prev->_output[i]);
+    _errors[i] = (_output[i] - expected); // * activationDerivativeFunction(_prev->_output[i]);
   }
 }
 

@@ -134,7 +134,8 @@ class Mnist_Parser
       while (!in.eof()){
         in.read((char*)&pixel, sizeof(uint8_t));
         col_index++;
-        row.push_back((float_t)pixel);
+        row.push_back((float_t)pixel/256.0);
+        //row.push_back((float_t)pixel);
         if (col_index == 28){
           img.push_back(row);
 

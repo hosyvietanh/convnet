@@ -6,11 +6,11 @@ using namespace std;
 class Layer {
   public:
     Layer(int depth, int height, int width, int spatialExtent, int stride,
-        int zeroPadding, float_t alpha, float_t lambda, Layer *prev);
+        int zeroPadding, Layer *prev);
     virtual  void feedForward() = 0;
     virtual void backProp(float_t *nextErrors) = 0;
     int _width, _height, _depth, _spatialExtent, _stride, _zeroPadding;
-    float_t _alpha, _lambda;
+    static float_t _alpha, _lambda;
     float_t* _output;
     Layer *_prev;
     float_t* _errors;
@@ -22,6 +22,7 @@ class Layer {
     int _outputSize;
     int _errorSize;
     int getIndex(int d, int h, int w);
+    static void setLearning(float_t alpha, float_t lambda);
 };
 
 class Input: public Layer {

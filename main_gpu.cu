@@ -10,7 +10,7 @@
 #include <cfloat>
 #include <vector>
 #include "layers_gpu.h"
-#include "mnist_parser.cpp"
+#include "mnist_parser.cu"
 
 using namespace std;
 
@@ -19,11 +19,11 @@ void initializeNet(vector<Layer*> &layers) {
   // MaxPooling - SpatialExtent, stride
   // FullyConnected - Depth
   layers.push_back(new Input(1, 32, 32));
-  layers.push_back(new ConvolutionalLayer(6, 5, 1, 0, layers.back())); // => 6 * 28 * 28
-  layers.push_back(new MaxPoolingLayer(2, 2, layers.back())); // => 6 * 14 * 14 
-  layers.push_back(new ConvolutionalLayer(16, 5, 1, 0, layers.back())); // => 16 * 10 * 10
+  layers.push_back(new ConvolutionalLayer(6, 3, 1, 0, layers.back())); // => 6 * 28 * 28
+  layers.push_back(new MaxPoolingLayer(3, 3, layers.back())); // => 6 * 14 * 14 
+  layers.push_back(new ConvolutionalLayer(16, 3, 1, 0, layers.back())); // => 16 * 10 * 10
   layers.push_back(new MaxPoolingLayer(2, 2, layers.back())); // => 16 * 5 * 5
-  layers.push_back(new ConvolutionalLayer(100, 5, 1, 0, layers.back())); // => 120 * 1 * 1
+  layers.push_back(new ConvolutionalLayer(120, 4, 1, 0, layers.back())); // => 120 * 1 * 1
   layers.push_back(new FullyConnectedLayer(10, layers.back())); // => 10 * 1 * 1
   layers.push_back(new OutputLayer(layers.back()));
 }
@@ -33,7 +33,18 @@ void train(vector<Layer*> layers) {
   vector<Sample*> input = parser.load_training();  
   int PASS = input.size();
   /*PASS = input.size();*/
+  Layer::setLearning(0.05, 0.001);
   for (int test = 0; test < PASS; test++) {
+    if (test == input.size() * 15) {
+      Layer::setLearning(0.001, 0.001);
+    } else if (test == input.size() * 10) {
+      Layer::setLearning(0.001, 0.001);
+    } else if (test == input.size() * 5){
+      Layer::setLearning(0.005, 0.001);
+    } else if (test == input.size()) {
+      Layer::setLearning(0.01, 0.001);
+    }
+
     int i = test % input.size();
     if (test % 1000 == 0) {
       cout << test << endl;
